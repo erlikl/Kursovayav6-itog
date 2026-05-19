@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Управление контрактами — Легкий интерфейс</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#f4fbf7;--card:#fff;--muted:#6b7280;--accent:#2563eb;--danger:#ef4444}
+    body{font-family:Inter,Arial,Helvetica,sans-serif;margin:18px;background:var(--bg);color:#0f172a}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    header h1{font-size:20px;margin:0}
+    header .controls{display:flex;gap:8px}
+    .btn{background:var(--accent);color:#fff;padding:8px 12px;border-radius:6px;border:0;cursor:pointer}
+    .btn.secondary{background:#e6eefc;color:var(--accent)}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(37,99,235,0.12)}
+    .card{background:var(--card);padding:14px;border-radius:8px;box-shadow:0 1px 2px rgba(2,6,23,0.06);margin-bottom:12px}
+    .layout{display:grid;grid-template-columns:360px 1fr;gap:14px}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    input,select,textarea{padding:8px;border-radius:6px;border:1px solid #e6eef3;width:100%;box-sizing:border-box}
+    .small{font-size:13px;color:var(--muted)}
+    .list{max-height:520px;overflow:auto}
+    .contract-item{padding:10px;border-radius:6px;border:1px solid #eef3f7;margin-bottom:8px;cursor:pointer}
+    .contract-item:hover{background:#fbfdff}
+    .row{display:flex;gap:8px}
+    .flex{display:flex;gap:8px;align-items:center}
+    .tags{display:flex;gap:6px;flex-wrap:wrap}
+    .tag{background:#eef2ff;color:#312e81;padding:4px 8px;border-radius:999px;font-size:12px}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    iframe.swagger-frame{width:100%;height:720px;border:1px solid #e6eef3;border-radius:6px}
+    .actions{display:flex;gap:8px;margin-top:10px}
+    .danger{background:var(--danger);color:#fff}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Простая UI для работы с контрактами</h1>
+      <div class="controls">
+        <a class="btn ghost" href="/swagger" target="_blank" rel="noopener noreferrer">Открыть Swagger</a>
+        <button class="btn ghost" @click="loadAllFiles(); showAllFiles = true">Мои файлы</button>
+        <button class="btn" @click="logout">Выйти</button>
+      </div>
+    </header>
+
+    <!-- Files modal is rendered as overlay (see bottom of file) -->
+
+      <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1">
+          <label>Логин</label>
+          <input v-model="auth.username" placeholder="Логин" />
+        </div>
+        <div style="width:220px">
+          <label>Пароль</label>
+          <input v-model="auth.password" type="password" placeholder="Пароль" />
+        </div>
+        <div style="width:140px">
+          <label>&nbsp;</label>
+          <button class="btn" @click="login">Войти</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:8px">
+          <input id="remember" type="checkbox" v-model="remember" />
+          <label for="remember" style="margin:0">Запомнить меня</label>
+        </div>
+      </div>
+      <div class="small" style="margin-top:8px;display:flex;gap:8px;align-items:center">
+        <div>Токен: <span style="word-break:break-all;max-width:520px;display:inline-block;vertical-align:middle">{{ tokenShort }}</span></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn ghost" @click="toggleShowToken" style="height:30px">{{ showFullToken ? 'Свернуть' : 'Показать' }}</button>
+          <button class="btn ghost" @click="copyToken" style="height:30px">Копировать</button>
+          <button class="btn ghost" @click="logout" style="height:30px">Выход</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div>
+        <div class="card">
+          <h3>Фильтры</h3>
+          <div style="margin-bottom:8px">
+            <label>Поиск (включая по тексту)</label>
+            <input v-model="filters.q" placeholder="Поиск" />
+          </div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1">
+              <label>Статус</label>
+               <select v-model="filters.status">
+                 <option value="">Все</option>
+                 <option value="Draft">Черновик</option>
+                 <option value="Active">Активный</option>
+                 <option value="Expired">Истёк</option>
+               </select>
+            </div>
+            <div style="width:120px">
+              <label>ID отдела</label>
+              <input v-model="filters.departmentId" type="number" />
+            </div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+             <button class="btn" @click="loadContracts">Найти</button>
+             <button class="btn ghost" @click="clearFilters">Сбросить</button>
+          </div>
+        </div>
+
+        <div class="card list">
+          <h3>Контракты ({{ contracts.length }})</h3>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div class="small">Страница {{ currentPage }} / {{ totalPages }}</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" @click="prevPage" :disabled="currentPage<=1">←</button>
+              <button class="btn ghost" @click="nextPage" :disabled="currentPage>=totalPages">→</button>
+            </div>
+          </div>
+          <div v-if="contracts.length===0" class="small">Нет контрактов. Нажмите "Создать".</div>
+          <div v-for="c in contracts" :key="c.id" class="contract-item" @click="selectContract(c)">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div>
+              <div style="font-weight:600">{{ c.title }}</div>
+                <div class="small">#{{ c.contractNumber }} · {{ fmtStatus(c.status) }} · {{ c.amount || '' }} {{ c.currency || '' }}</div>
+                <div class="small" style="color:#888;margin-top:4px">Автор: {{ c.createdByFullName || c.createdBy }}</div>
+              </div>
+              <div class="tags">
+                <span v-for="t in c.tags || []" :key="t" class="tag">{{ t }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3>Создать контракт</h3>
+          <div style="display:grid;grid-template-columns:1fr 180px;gap:8px">
+            <div>
+               <label>Название</label>
+              <input v-model="newContract.title" />
+            </div>
+            <div>
+               <label>Номер договора</label>
+              <input v-model="newContract.contractNumber" />
+            </div>
+            <div>
+               <label>ID отдела (опционально)</label>
+              <input v-model="newContract.departmentId" type="number" />
+            </div>
+            <div>
+               <label>ID ответственного сотрудника (опционально)</label>
+              <input v-model="newContract.responsibleEmployeeId" type="number" />
+            </div>
+            <div>
+               <label>Сумма</label>
+              <input v-model="newContract.amount" type="number" />
+            </div>
+            <div>
+               <label>Дата начала (опционально)</label>
+              <input v-model="newContract.startDate" type="date" />
+            </div>
+            <div>
+               <label>Дата окончания (опционально)</label>
+              <input v-model="newContract.endDate" type="date" />
+            </div>
+            <div style="grid-column:1 / -1">
+               <label>Описание</label>
+              <textarea v-model="newContract.description"></textarea>
+            </div>
+            <div style="grid-column:1 / -1;display:flex;gap:8px;margin-top:8px">
+              <div style="flex:1">
+                <label>Статус</label>
+                <select v-model="newContract.status">
+                  <option>Draft</option>
+                  <option>Active</option>
+                  <option>Expired</option>
+                </select>
+              </div>
+              <div style="width:140px">
+                <label>Валюта</label>
+                <input v-model="newContract.currency" placeholder="RUB" />
+              </div>
+              <div style="width:200px">
+                <label>Тип контракта</label>
+                <input v-model="newContract.contractType" placeholder="Type" />
+              </div>
+            </div>
+          </div>
+              <div class="actions">
+               <button class="btn" @click="createContract">Создать</button>
+               <!-- Refresh contracts list -->
+               <button id="loadContractsBtn" class="btn ghost" @click="onLoadContracts">Загрузить</button>
+               <!-- CSV import: hidden input + trigger button -->
+               <input id="contractsCsvInput" type="file" accept=".csv,text/csv" style="display:none" @change="onCsvSelected" />
+               <button id="importCsvBtn" class="btn ghost" @click="onPickContractsCsv">Импорт CSV</button>
+               <button class="btn secondary" @click="exportSelected" :disabled="!selectedContract">Экспорт CSV</button>
+               <button class="btn danger" v-if="selectedContract && isAdmin" @click="deleteSelected">Удалить</button>
+           </div>
+        </div>
+
+        <div v-if="selectedContract" class="card">
+          <h3>Детали контракта</h3>
+          <div style="display:grid;grid-template-columns:1fr 180px;gap:8px">
+            <div>
+              <label>Название</label>
+              <input v-model="selectedContract.title" />
+            </div>
+            <div>
+              <label>Номер договора</label>
+              <input v-model="selectedContract.contractNumber" />
+            </div>
+            <div>
+              <label>ID отдела</label>
+              <input v-model="selectedContract.departmentId" type="number" />
+            </div>
+            <div>
+              <label>ID ответственного сотрудника</label>
+              <input v-model="selectedContract.responsibleEmployeeId" type="number" />
+            </div>
+            <div>
+              <label>Сумма</label>
+              <input v-model="selectedContract.amount" type="number" />
+            </div>
+            <div>
+              <label>Валюта</label>
+              <input v-model="selectedContract.currency" placeholder="RUB" />
+            </div>
+            <div>
+              <label>Тип контракта</label>
+              <input v-model="selectedContract.contractType" />
+            </div>
+            <div>
+              <label>Дата начала</label>
+              <input v-model="selectedContract.startDate" type="date" />
+            </div>
+            <div>
+              <label>Дата окончания</label>
+              <input v-model="selectedContract.endDate" type="date" />
+            </div>
+            <div style="grid-column:1 / -1;display:flex;gap:8px">
+              <div style="flex:1">
+                <label>Статус</label>
+                <select v-model="selectedContract.status">
+                  <option value="Draft">Черновик</option>
+                  <option value="Active">Активный</option>
+                  <option value="Expired">Истёк</option>
+                </select>
+              </div>
+            </div>
+            <div style="grid-column:1 / -1">
+              <label>Описание</label>
+              <textarea v-model="selectedContract.description"></textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn" @click="updateContract">Сохранить</button>
+            <button class="btn ghost" @click="selectContract(selectedContract)">Обновить</button>
+          </div>
+
+          <div style="margin-top:12px;padding:8px;background:#f3f4f6;border-radius:6px">
+            <div style="font-size:13px;color:var(--muted)">
+              <div><strong>Создано:</strong> {{ fmtDate(selectedContract.createdAt) }}</div>
+              <div><strong>Автор:</strong> {{ selectedContract.createdByFullName || selectedContract.createdBy }}</div>
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <h4>Теги</h4>
+            <div class="tags">
+              <span v-for="t in tags" :key="t" class="tag">{{ t }}</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <input v-model="tagToAdd" placeholder="Название тега" />
+              <button class="btn" @click="addTagToContract">Добавить тег</button>
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <h4>Файлы</h4>
+            <div v-if="files.length===0" class="small">Нет файлов</div>
+            <ul>
+              <li v-for="f in files" :key="f.id" style="display:flex;align-items:center;justify-content:space-between">
+                <div>
+                  {{ f.displayName }} (id:{{ f.id }})
+                </div>
+                <div style="display:flex;gap:6px">
+                   <button class="btn ghost" @click="downloadFile(f.id)">Скачать</button>
+                   <button class="btn ghost" @click="deleteFile(f.id)">Удалить</button>
+                </div>
+              </li>
+            </ul>
+
+            <div style="margin-top:8px">
+              <label class="small">Загрузить файл (multipart)</label>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                <input id="fileInput" type="file" />
+                <input v-model="uploadEmployeeId" placeholder="ID сотрудника (опция)" style="width:140px" />
+                <button class="btn" @click="uploadMultipart">Загрузить</button>
+              </div>
+            </div>
+
+            <div style="margin-top:8px">
+              <label class="small">Или вставьте Base64 (для теста)</label>
+              <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                <input v-model="base64FileName" placeholder="файл.ext" style="width:200px" />
+                <button class="btn ghost" @click="pasteBase64FromClipboard">Вставить из буфера</button>
+              </div>
+              <textarea v-model="base64Content" style="width:100%;height:100px;margin-top:6px"></textarea>
+              <div style="display:flex;gap:8px;margin-top:6px">
+                <input v-model="uploadEmployeeId" placeholder="ID сотрудника (опция)" style="width:140px" />
+                <button class="btn" @click="uploadBase64">Загрузить Base64</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <h4>История</h4>
+            <div v-if="history.length===0" class="small">Нет истории</div>
+            <ul>
+               <li v-for="h in history" :key="h.id">[{{ fmtDate(h.performedAt) }}] {{ h.action }} · {{ h.performedBy }} · {{ h.details }}</li>
+            </ul>
+          </div>
+        </div>
+
+        <div v-if="showSwagger" class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h3>Swagger</h3>
+            <button class="btn ghost" @click="showSwagger=false" style="height:34px">Close</button>
+          </div>
+          <iframe class="swagger-frame" src="/swagger/index.html"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- Files modal overlay -->
+    <div v-if="showAllFiles" @dragover.prevent @drop.prevent="onDrop($event)" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);z-index:1200">
+      <div class="card" style="width:90%;max-width:980px;max-height:80%;overflow:auto;position:relative">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3>Все файлы</h3>
+          <div style="display:flex;gap:8px">
+            <button class="btn ghost" @click="showAllFiles=false">Закрыть</button>
+          </div>
+        </div>
+        <div class="small" style="margin-top:6px">Перетащите файлы сюда, чтобы загрузить или используйте обычный загрузчик</div>
+
+        <div v-if="uploading.length" style="margin-top:8px">
+          <div v-for="u in uploading" :key="u.name" style="margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between"><div>{{ u.name }}</div><div>{{ u.progress }}%</div></div>
+            <div style="height:6px;background:#eef3f7;border-radius:4px;margin-top:4px">
+              <div :style="{ width: u.progress+'%', background:'#2563eb', height:'100%', borderRadius:'4px' }"></div>
+            </div>
+          </div>
+        </div>
+
+        <ul style="margin-top:10px">
+            <li v-for="f in allFiles" :key="f.id" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f6f5">
+            <div>
+              {{ f.displayName }} <span class="small">(id:{{ f.id }})</span>
+              <span v-if="selectedContract && f.contractId && selectedContract.id && f.contractId === selectedContract.id" class="tag" style="margin-left:8px;background:#e6ffed;color:#065f46">Прикреплено</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn ghost" @click="downloadFile(f.id)">Скачать</button>
+              <button class="btn ghost" v-if="selectedContract" :disabled="f.contractId && selectedContract.id && f.contractId === selectedContract.id" @click="callAttachFile(f.id)">Прикрепить</button>
+              <button class="btn ghost" v-if="isAdmin" @click="deleteFile(f.id)">Удалить</button>
+            </div>
+          </li>
+        </ul>
+
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+          <input id="modalFileInput" type="file" multiple />
+          <input v-model="uploadEmployeeId" placeholder="ID сотрудника (опция)" style="width:140px" />
+          <button id="modalUploadBtn" class="btn" @click="onModalUpload">Загрузить</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="small">ВГТУ 2026</footer>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="app.js?v=3"></script>
+</body>
+</html>
